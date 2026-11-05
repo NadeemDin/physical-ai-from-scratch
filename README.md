@@ -2,7 +2,7 @@
 
 **Build a live physical AI system end to end: a sensor rig, streaming, physics-informed anomaly detection and a transformer world model.**
 
-<! -- put Rig photos here -->
+<!-- put Rig photos here -->
 
 ---
 
