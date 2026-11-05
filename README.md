@@ -1,6 +1,6 @@
 # physical-ai-from-scratch
 
-**Build a live physical AI system end to end: a sensor rig, streaming, physics-informed anomaly detection and a transformer world model.**
+**Build a live physical AI system end to end: a sensor rig, streaming, physics-informed anomaly detection and a transformer that learn the machine's behaviour.**
 
 <!-- put Rig photos here -->
 
@@ -8,11 +8,11 @@
 
 ## What is Physical AI?
 
-Most AI were exposed to today works on text and images. **Physical AI** is AI that understands the physical world through sensor data such as vibration, temperature, current and speed, and then acts on what it finds.
+Most AI we're exposed to today works on text and images. **Physical AI** is AI that understands the physical world through sensor data such as vibration, temperature, current and speed, and then acts on what it finds.
 
-Personally I think its one of the most interesting areas of AI. Startups are building foundational models for sensor data, industrial AI companies are applying physics-informed "world-models" to plants and refineries and pre-trained time-series models like Amazon's Chronos are making forecasting available off the shelf
+Personally I think it's one of the most interesting areas of AI. Startups are building foundation models for sensor data, industrial AI companies are applying physics-informed "world-models" to plants and refineries and pre-trained time-series models like Amazon's Chronos are making forecasting available off the shelf.
 
-But the hard part isn't the model. its the **data**. Real sensor data is messy, faults are rare and labelled examples of failure hardly exist.
+But the hard part isn't the model. it's the **data**. Real sensor data is messy, faults are rare and labelled examples of failure hardly exist.
 
 ## What I'm building
 
@@ -25,6 +25,11 @@ A physical fan rig with five sensor signals (vibration, current and voltage, RPM
 - Lets me **label** new behaviour live, with physics-backed suggestions
 - **Explains* what happened in plain English
 - **Recursive learning**: Forecasts, checks against what actually happened and retrains on the new data (S3 -> Databricks) with no labels needed
+
+### Recursive learning, safely
+Retraining on its own data can teach a model that faults are normal. Two safeguards prevent that:
+- **Train on healthy data only**: periods that were flagged, labelled as faults, or offline are excluded.
+- **Check before going live**: a new model only replaces the current one if it still catches every known fault and forecasts at least as well. 
 
 ## Why
 
