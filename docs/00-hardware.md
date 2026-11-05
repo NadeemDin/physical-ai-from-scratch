@@ -88,7 +88,7 @@ All four sensors daisy-chain over STEMMA QT cables from the ESP32's QT port. The
 
 | Sensor | Where | Why |
 |---|---|---|
-| ADXL345 | Superglued to the top of the fan frame | Picks up imbalance and rocking where they're strongest. It's glued, not taped: tape let it shift, and any movement changes vibration readings between sessions |
+| ADXL345 | Superglued to the top of the fan frame, **off-centre** | Picks up imbalance and rocking where they're strongest. It's glued, not taped: tape let it shift, and any movement changes vibration readings between sessions. It sits off-centre because the fan's 4-pin cable is looped over the top of the frame, and the cable makes a bump under the middle that would stop it sitting flat |
 | TMP117 | On the motor hub, chip side down on a small piece of thermal pad, held with Kapton tape | Bearing and motor heat show up here first; the pad gives good thermal contact |
 | AHT20 | On the base, **in the fan's airflow** | Acts as an airflow proxy: blocked airflow makes it warm up |
 | INA219 | In the 12V line | Current rises with load, friction or a stall |
