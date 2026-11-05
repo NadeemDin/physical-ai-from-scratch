@@ -115,7 +115,7 @@ The axes are marked on the ADXL345 photo above and on the top-down photo at the 
 
 **Airflow direction:** air enters at the front of the fan and leaves through the back (the strut side, where the TMP117 sits), blowing across the breadboard towards the AHT20. In ADXL345 terms, air flows in the X− direction.
 
-**Mounting note:** the fan sits in single-sided L-brackets and can rock slightly front to back. That's accepted: the models learn *this* rig's normal, so the setup is kept the same between recordings. A thin strip of cardboard was also used to cushion the base of the fan as the L-brackets raise it sightly.
+**Mounting note:** the fan sits in single-sided L-brackets and can rock slightly front to back. That's accepted: the models learn *this* rig's normal, so the setup is kept the same between recordings. A thin strip of cardboard was also used to cushion the base of the fan as the L-brackets raise it slightly.
 
 ## Building it
 

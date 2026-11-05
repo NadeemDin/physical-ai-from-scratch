@@ -2,7 +2,8 @@
 
 **Build a live physical AI system end to end: a sensor rig, streaming, physics-informed anomaly detection and a transformer that learn the machine's behaviour.**
 
-<!-- put Rig photos here -->
+![The physical rig: ESP32, five sensors and a PWM fan](docs/images/rig-hero.jpg)
+
 
 ---
 
