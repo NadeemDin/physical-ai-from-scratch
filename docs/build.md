@@ -59,7 +59,7 @@ https://espressif.github.io/arduino-esp32/package_esp32_index.json
 5. **Tools -> Upload speed -> 115200.** The default speed fails to upload on some Macs ("Unable to verify flash chip connection"). <i>I'm using a Macbook Air M3</i>
 6. Press the ESP32 into the breadboard so it straddles the centre channel, pressing evenly so the pins don't bend. <i>New breadboards can be stiff: pushing the end of a jumper wire into each hole first loosens them and makes this step much easier.</i>
 7. Connect the USB-C cable. **Tools -> Port**: pick one that looks like `/dev/cu.usbserial-...`.
-8. Upload [`hello`](firmware/hello/hello.ino).
+8. Upload [`hello`](../firmware/hello/hello.ino).
 
 A successful upload ends with **"Done uploading."** in the status bar and `Hash of data verified` … `Hard resetting via RTS pin...` in the output. If it fails, see the [build log](docs/build-log.md).
 
@@ -84,7 +84,7 @@ screen /dev/cu.usbserial-XXXX 115200
 1. **Unplug USB.**
 2. Connect the STEMMA QT cable from the ESP32's STEMMA QT port to either port on the AHT20.
 3. **Sketch -> Include Library -> Manage Libraries**: install **Adafruit AHTX0** and **Adafruit NeoPixel** (accept "Install all" for all dependencies).
-4. Reconnect USB and upload [`aht20_test`](firmware/aht20_test/aht20_test.ino).
+4. Reconnect USB and upload [`aht20_test`](../firmware/aht20_test/aht20_test.ino).
 
 **Check:** in Terminal, you should see a sensible room temperature (around 18–24°C) and humidity, once a second. Breathe gently on the sensor: humidity should jump, then settle. Status light: flashing green/blue.
 
@@ -109,7 +109,7 @@ All four sensors share the same two data wires (the I²C bus). Each one has its 
 1. **Unplug USB.**
 2. Daisy-chain the sensors from the AHT20's spare port: **AHT20 → INA219 (200mm) → ADXL345 (200mm) → TMP117 (100mm)**. Every board has two ports, so electrically the order doesn't matter, but this order matches where they'll be mounted.
 3. Leave the sensors loose on the desk for now.
-4. Reconnect USB and upload [`i2c_scan`](../firmware/i2c_scan).
+4. Reconnect USB and upload [`i2c_scan`](../firmware/i2c_scan/i2c_scan.ino).
 
 **Check:** open `screen` (see step 2). Every few seconds you should see:
 ```
@@ -216,7 +216,7 @@ The **INA219** measures how much current (electricity) the fan is drawing. The f
 
 ![Step 6: how the fan is controlled](images/diagram-step6-control.png)
 
-1. With USB connected and **12V still unplugged**, upload [`fan_test`](firmware/fan_test/fan_test.ino).
+1. With USB connected and **12V still unplugged**, upload [`fan_test`](../firmware/fan_test/fan_test.ino).
 2. Plug the 12V adapter into the wall, then into the DC jack. The fan starts at **40%**.
 3. Open `screen` (see step 2). Type a number from 0 to 100 and press **Enter** to change speed. The digits appear as you type.
 
@@ -246,7 +246,7 @@ RPM moves in steps of 30 (e.g. 1,404 then 1,432). The fan isn't changing speed: 
 
 ![Step 7: what each reading means](images/diagram-step7-readings.png)
 
-1. Upload [`all_sensors`](firmware/all_sensors/all_sensors.ino).
+1. Upload [`all_sensors`](../firmware/all_sensors/all_sensors.ino).
 2. Open `screen`. You can change speed the same way as in step 6.
 
 **Check:** one line per second, like:
