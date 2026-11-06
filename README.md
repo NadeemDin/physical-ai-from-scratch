@@ -45,7 +45,7 @@ My background is in industrial data engineering: onboarding building-automation 
 ### Core: physical AI on a single machine
 | Phase | What | Status |
 | --- | ---- | ---|
-| 0| Rig build and hardware docs | ⬜️ |
+| 0| Rig build and hardware docs | 🟩|
 | 1 | Docker, MQTT, TimescaleDB, live clusters, labelling UI | ⬜️|
 | 2| Kafka: every model reads the same live stream | ⬜️ |
 | 3 | AWS (S3, IAM, KMS) and Databricks: the training pipeline | ⬜️ | 
