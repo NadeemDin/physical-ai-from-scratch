@@ -1,4 +1,4 @@
-// Step 1c-iii: read all sensors and publish one JSON message per second over MQTT.
+// Read all sensors and publish one JSON message per second over MQTT.
 //
 // Topics (fan1 = this rig):
 //   rig/fan1/features  out  one JSON message per second with all readings
