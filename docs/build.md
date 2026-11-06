@@ -61,7 +61,7 @@ https://espressif.github.io/arduino-esp32/package_esp32_index.json
 7. Connect the USB-C cable. **Tools -> Port**: pick one that looks like `/dev/cu.usbserial-...`.
 8. Upload [`hello`](../firmware/hello/hello.ino).
 
-A successful upload ends with **"Done uploading."** in the status bar and `Hash of data verified` … `Hard resetting via RTS pin...` in the output. If it fails, see the [build log](docs/build-log.md).
+A successful upload ends with **"Done uploading."** in the status bar and `Hash of data verified` … `Hard resetting via RTS pin...` in the output. If it fails, see the [build log](build-log.md).
 
 **Check:** read the serial output in Terminal:
 ```
@@ -69,7 +69,7 @@ screen /dev/cu.usbserial-XXXX 115200
 ```
 (replace 'XXXX' with your port; exit with **Ctrl+A, then K, then Y**). You should see `Hello from the fan rig` every second. Always exit before uploading again, or the upload fails with "port busy".
 
-> ⚠ **Use Terminal, not the Arduino Serial Monitor.** On this board and macOS, the Serial Monitor garbles the output every few lines. Also **exit `screen` before every upload**, or the upload fails with "port busy". See the [build log](docs/build-log.md)
+> ⚠ **Use Terminal, not the Arduino Serial Monitor.** On this board and macOS, the Serial Monitor garbles the output every few lines. Also **exit `screen` before every upload**, or the upload fails with "port busy". See the [build log](build-log.md)
 
 > ⚠ **No `usbserial` port?** Check the cable carries data (many USB-C cables are charge only, the listed in [hardware](docs/00-hardware.md) carries data) and that the ESP32 isn't sitting on conductive anti-static foam (it was packaged pinned into some). You shouldn't need to install a driver.
 
