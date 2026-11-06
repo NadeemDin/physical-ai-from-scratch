@@ -231,3 +231,6 @@ data/raw/
 
 # Node (for the UI later when i work on it)
 node_modules/
+
+#Logs
+logs/
