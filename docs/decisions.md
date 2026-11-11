@@ -88,3 +88,40 @@ Each entry records what I chose, why, and what else I considered.
 **Why:** connectivity is about the data, not the machine. Stale is needed because the last will can take about 20 seconds (keepalive timeout), and it is never sent if the broker itself stops.
 **Alternatives:** rely on the last will only. It misses broker failures and leaves a gap of about 20 seconds where a lost fan still looks healthy.
 **Note:** an unpowered fan with a powered ESP32 is still online. It shows as the operating state "unpowered" (about 0 V and 0 mA), not as offline.
+
+## Failed sensor reads are sent as null (11 Nov 2026)
+**Decision:** when any sensor read fails, the firmware sends `null` for that field, never `nan`. The ingest service stores it as a NULL in that column and stores the other fields normally.
+**Status:** planned, not built. Part of the firmware session.
+**Why:** `nan` is not valid JSON, so one failed sensor makes the whole message unreadable, and the good values are lost with it. `null` is valid JSON and means "no value", so only the failed field is missing.
+**Alternatives:** keep `nan` and let the dead-letter table catch it (loses all the good fields), or parse `nan` in Python (Postgres JSONB rejects it anyway).
+
+## A fan unit is the fan plus its instruments (11 Nov 2026)
+**Decision:** I monitor each fan as one **unit**: the fan itself, plus the instruments that measure it (the ESP32 and its sensors). Any problem in the unit is a fault of that unit, including a failed sensor.
+
+**In the data:** the fan and its instruments are stored as separate equipment under the same system. This tells me *which part* failed: the fan (a **machine fault**, such as imbalance) or a sensor (an **instrument fault**, such as no airflow reading). This matches how Haystack and Brick model a device and the points it measures.
+
+**In the UI:**
+- **Fleet view:** each fan unit has one patch. A machine fault or an instrument fault turns that patch to Fault (coral). Worst child wins.
+- **Fan view** (click a fan): one geodesic for the whole unit. There is no geodesic per sensor.
+- Each fault type has its own **shape** and **callout**, so I can tell them apart at a glance:
+
+| Fault | Colour | Shape | Callout |
+|---|---|---|---|
+| Imbalance (machine) | coral | spike | `FAN01 · IMBALANCE` |
+| Sensor failed (instrument) | coral | affected patch goes dark or hollow, like a missing piece | `FAN01 · SENSOR: AHT20` |
+
+**Why:**
+- A NULL from a sensor that should always report means I have lost part of my monitoring. That is a failure and needs action, so it shows at Fault level.
+- The action is different, though. For a machine fault, I stop or repair the fan. For an instrument fault, I fix the sensor or wiring. The separate shape and callout stop a loose wire from looking like imbalance.
+
+**Effect on the models:** when a sensor fails, the checks that need it cannot be judged. For example, with no airflow reading, "blocked intake" is unknown. Checks that do not need that sensor carry on.
+
+**Alternatives:**
+- One item in the data as well as the UI. Simpler, but I would lose which part failed.
+- A geodesic per sensor. Too much detail for the fan view.
+- Instrument faults as Watch (amber). Rejected: losing a sensor means losing monitoring.
+
+## Data quality is its own status (11 Nov 2026)
+**Decision:** each device has a data quality status (ok, or instrument fault naming the sensor), separate from connectivity, operating state and condition.
+**Why:** data can arrive (online) and still be untrustworthy. Connectivity asks "is data arriving?"; data quality asks "can I trust it?".
+**Alternatives:** fold it into connectivity. Simpler, but "online with a dead sensor" would have no honest way to show.
