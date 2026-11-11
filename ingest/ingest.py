@@ -136,7 +136,11 @@ def on_message(client, userdata, msg):
     ts = datetime.now(timezone.utc)
     # Order must match cols. The full payload is kept so fields without a column are not lost.
     values = [ts, equipment_id, *(data.get(k) for k in COLUMNS), Jsonb(data)]
-    conn.execute(INSERT_SQL, values)
+    try:
+        conn.execute(INSERT_SQL, values)
+    except psycopg.DataError as e:
+        print(f"rejected: {type(e).__name__} on {msg.topic}: {e}")
+        return
     print("stored:", mqtt_id, " ".join(f"{k}={data.get(k)}" for k in COLUMNS))
 
 
