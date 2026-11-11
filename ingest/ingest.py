@@ -113,7 +113,14 @@ def get_equipment_id(mqtt_id):
 def on_message(client, userdata, msg):
     """Store one reading. paho calls this for each message on rig/+/features."""
     mqtt_id = msg.topic.split("/")[1]  # "rig/fan1/features" -> ["rig", "fan1", "features"][1] -> "fan1"
-    data = json.loads(msg.payload)
+    try:
+        data = json.loads(msg.payload)
+    except json.JSONDecodeError as e:
+        print(f"rejected: bad JSON on {msg.topic}: {e}")
+        return
+    if not isinstance(data,dict):
+        print(f"rejected: expected a JSON object on {msg.topic}, got {type(data).__name__}")
+        return
 
     equipment_id = get_equipment_id(mqtt_id)
     if equipment_id is None:
