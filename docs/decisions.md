@@ -125,3 +125,8 @@ Each entry records what I chose, why, and what else I considered.
 **Decision:** each device has a data quality status (ok, or instrument fault naming the sensor), separate from connectivity, operating state and condition.
 **Why:** data can arrive (online) and still be untrustworthy. Connectivity asks "is data arriving?"; data quality asks "can I trust it?".
 **Alternatives:** fold it into connectivity. Simpler, but "online with a dead sensor" would have no honest way to show.
+
+## Database outages: drop and count, never block (12 Nov 2026)
+**Decision:** when the database is down, the ingest service drops each message, counts it, and tries to reconnect at most every 5 seconds. It never waits inside `on_message`. When the database is back, it logs how long the outage was and how many messages were lost. The same reconnect logic is used at startup.
+**Why:** `time` is ingest time, so it is only correct if each message is stored when it arrives. Waiting inside `on_message` makes messages queue up, and the backlog would get the wrong timestamps when the database returns. A visible gap in `readings` is honest; a backlog with wrong times looks normal but is wrong.
+**Alternatives:** block and retry until the database is back (wrong timestamps), or buffer messages in memory with their arrival time (more complex, and lost anyway if the service stops). Lost messages cannot go to `rejected_messages`, because it is in the same database.
