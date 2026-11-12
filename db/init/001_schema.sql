@@ -2,6 +2,7 @@
 -- The hierarchy follows the public building-data standards Project Haystack and Brick Schema (a small subset).
 -- Runs automatically the first time the database starts with an empty volume.
 
+
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 
 CREATE TABLE sites (
@@ -44,8 +45,19 @@ CREATE TABLE readings (
     a_peak        REAL,
     vib_samples   SMALLINT,
     power_samples SMALLINT,
-    payload       JSONB,                        -- the original message, so new fields are never lost
+    payload       JSONB       NOT NULL,     -- the original message, so new fields are never lost                        -- the original message, so new fields are never lost
     PRIMARY KEY (equipment_id, time)
+);
+
+   -- Messages the ingest service could not store (bad JSON, wrong shape, bad values, unknown equipment).
+-- Kept as data, not only logged, so transmission faults can be counted and charted.
+CREATE TABLE rejected_messages (
+    id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    received_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    topic         TEXT NOT NULL,
+    raw           TEXT NOT NULL,           -- decoded with bad bytes escaped, so nothing is lost
+    error_type    TEXT NOT NULL,           -- exception name, e.g. JSONDecodeError
+    error_message TEXT
 );
 
 -- Turn readings into a hypertable, split into one-day chunks
