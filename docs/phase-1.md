@@ -200,7 +200,7 @@ To write when the reconnect and logging are finished.
 - **Validate at the boundary:** valid bytes and JSON → a JSON object → known equipment → values the database accepts. Each failure goes to `rejected_messages` through one `reject()` helper.
 - Which errors are caught and which stay loud (`DataError` = bad message; `ProgrammingError` = my bug; `OperationalError` = database problem).
 - `scripts/send_bad_messages.sh`: one example of each reject.
-- Database outages: drop and count, reconnect at most every 5 s, never block. Why blocking would give wrong timestamps.
+- Database outages (built and tested 12 Nov 2026): `on_message` is a thin wrapper around `handle_message`; on `OperationalError` it drops and counts messages, reconnects with `connect_db()` (`connect_timeout=3`) at most every 5 s, and logs the outage length and lost count. Times use `time.monotonic()`. Why blocking would give wrong timestamps. The `global conn` bug found in testing (a local `conn` hid the new connection).
 - Logging: levels and timestamps.
 - How to run it and what normal output looks like.
 
@@ -212,6 +212,12 @@ To write after the SQL queries step.
 - First findings: the vibration noise floor, the 6 mA standby current, the tach reading 0 before the blades stop, speed-change overshoot, the probable resonance band, airflow cooling of the hub.
 - Queries: latest reading per fan, per-minute averages with `time_bucket`, finding gaps, rejects by type, the column-vs-payload check.
 - Evidence that the pipeline works: rows per second, gaps found, rejects found.
+- Findings to include (12 Nov 2026):
+  - Normal spacing between readings is 1.00–1.20 s, so a gap threshold of 1.5 s ignores timing wobble but catches one missed message.
+  - An 11.9 s gap in `readings` matched the log line "database back after 11 s, 11 messages lost". The outage shows in the data, not only in the log.
+  - A gap shows *that* data is missing, not *why* (service stopped, database down or ESP32 offline look the same). The reason is in the ingest log or the last will; later, an `events` table can record it.
+  - RPM alternates between two values (about 1410 and 1440 at 40% duty). This is the measurement resolution, not a speed change: 2 pulses per turn counted over about 1 s gives steps of 30 RPM.
+  - A one-second spike (`a_peak` 2.24 against about 0.6 normally, mostly on Z) during testing: a transient, probably a bump. It shows why the rig must be fixed in place before recording.
 
 ## 6. Limitations and next steps (outline)
 
@@ -237,4 +243,4 @@ To write at the end of the phase.
 | 9 Nov 2026 | Ingest service storing rows; then all 14 readings plus the raw payload |
 | 11 Nov 2026 | Ingest service survives bad messages |
 | 12 Nov 2026 | Dead-letter table with exact raw bytes; `payload NOT NULL` |
-| 12 Nov 2026 | Database outage behaviour designed (drop and count) |
+| 12 Nov 2026 | Database outages survived: drop, count and reconnect, verified with a gap query |

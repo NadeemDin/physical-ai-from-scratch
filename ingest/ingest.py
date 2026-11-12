@@ -6,9 +6,12 @@ How it runs:
 3. Connect to the MQTT broker.
 4. When connected, subscribe to rig/+/features.
 5. For each message:
-   a. Get the fan ID from the topic.
-   b. Find its equipment_id. Skip unknown fans.
-   c. Insert one row into readings: every mapped field plus the raw payload.
+   a. Check it: valid JSON, a JSON object, from known equipment.
+   b. Insert one row into readings: every mapped field plus the raw payload.
+   c. If a check or the insert fails, store the message in rejected_messages instead.
+
+If the database goes down, messages are dropped and counted, and the service
+reconnects every few seconds. It never waits, so stored timestamps stay correct.
 """
 
 import json
