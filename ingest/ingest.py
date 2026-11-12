@@ -78,7 +78,11 @@ COLUMNS = {
 # Only column names from this file go into the SQL text; values are sent as %s parameters.
 cols = ["time", "equipment_id", *COLUMNS.values(), "payload"]
 placeholders = ", ".join(["%s"] * len(cols))
-INSERT_SQL = f"INSERT INTO readings ({', '.join(cols)}) VALUES ({placeholders})"
+
+INSERT_READING_SQL = f"INSERT INTO readings ({', '.join(cols)}) VALUES ({placeholders})"
+INSERT_REJECT_SQL = ("INSERT INTO rejected_messages (topic, raw, error_type, error_message) " 
+                     "VALUES (%s, %s, %s, %s)"
+                     )
 
 
 def on_connect(client, userdata, flags, reason_code, properties):  # paho passes all five arguments, even unused ones
@@ -109,22 +113,28 @@ def get_equipment_id(mqtt_id):
     equipment_ids[mqtt_id] = row[0]
     return row[0]
 
+def reject(msg, error_type, error_message):
+    """Store a message that could not be injested, so transmission faults stay countable."""
+    raw = msg.payload.decode("utf-8", errors="backslashreplace")
+    conn.execute(INSERT_REJECT_SQL, (msg.topic, raw, error_type, error_message))
+    print(f"rejected: {error_type} on {msg.topic}: {error_message}")
+
 
 def on_message(client, userdata, msg):
     """Store one reading. paho calls this for each message on rig/+/features."""
     mqtt_id = msg.topic.split("/")[1]  # "rig/fan1/features" -> ["rig", "fan1", "features"][1] -> "fan1"
     try:
         data = json.loads(msg.payload)
-    except json.JSONDecodeError as e:
-        print(f"rejected: bad JSON on {msg.topic}: {e}")
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        reject(msg, type(e).__name__, str(e))
         return
     if not isinstance(data,dict):
-        print(f"rejected: expected a JSON object on {msg.topic}, got {type(data).__name__}")
+        reject(msg, "NotAnObject", f"expected a JSON object, got {type(data).__name__}")
         return
 
     equipment_id = get_equipment_id(mqtt_id)
     if equipment_id is None:
-        print("unknown equipment:", mqtt_id)
+        reject(msg, "UnknownEquipment", f"no equipment with mqtt_id {mqtt_id}")
         return
 
     # A missing key would become a silent NULL; warn so a firmware change is noticed.
@@ -137,9 +147,9 @@ def on_message(client, userdata, msg):
     # Order must match cols. The full payload is kept so fields without a column are not lost.
     values = [ts, equipment_id, *(data.get(k) for k in COLUMNS), Jsonb(data)]
     try:
-        conn.execute(INSERT_SQL, values)
+        conn.execute(INSERT_READING_SQL, values)
     except psycopg.DataError as e:
-        print(f"rejected: {type(e).__name__} on {msg.topic}: {e}")
+        reject(msg, type(e).__name__, str(e))
         return
     print("stored:", mqtt_id, " ".join(f"{k}={data.get(k)}" for k in COLUMNS))
 
