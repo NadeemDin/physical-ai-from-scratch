@@ -74,15 +74,21 @@ COLUMNS = {
     "power_samples": "power_samples",
 }
 
-# Built once at startup from COLUMNS, so a new column is a one-line change.
-# Only column names from this file go into the SQL text; values are sent as %s parameters.
-cols = ["time", "equipment_id", *COLUMNS.values(), "payload"]
-placeholders = ", ".join(["%s"] * len(cols))
+def build_insert(table, columns):
+    """Build a parameterised INSERT with one %s per column. Names come from this file only."""
+    placeholders = ", ".join(["%s"] * len(columns))
+    return f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})"
 
-INSERT_READING_SQL = f"INSERT INTO readings ({', '.join(cols)}) VALUES ({placeholders})"
-INSERT_REJECT_SQL = ("INSERT INTO rejected_messages (topic, raw, error_type, error_message) " 
-                     "VALUES (%s, %s, %s, %s)"
-                     )
+
+# Built from COLUMNS, so a new reading field is a one-line change.
+READING_COLS = ["time", "equipment_id", *COLUMNS.values(), "payload"]
+
+
+REJECT_COLS = ["topic", "raw", "raw_bytes", "error_type", "error_message"]
+
+
+INSERT_READING_SQL = build_insert("readings", READING_COLS)
+INSERT_REJECT_SQL = build_insert("rejected_messages", REJECT_COLS)
 
 
 def on_connect(client, userdata, flags, reason_code, properties):  # paho passes all five arguments, even unused ones
@@ -113,10 +119,11 @@ def get_equipment_id(mqtt_id):
     equipment_ids[mqtt_id] = row[0]
     return row[0]
 
+
 def reject(msg, error_type, error_message):
     """Store a message that could not be injested, so transmission faults stay countable."""
     raw = msg.payload.decode("utf-8", errors="backslashreplace")
-    conn.execute(INSERT_REJECT_SQL, (msg.topic, raw, error_type, error_message))
+    conn.execute(INSERT_REJECT_SQL, (msg.topic, raw, msg.payload, error_type, error_message))
     print(f"rejected: {error_type} on {msg.topic}: {error_message}")
 
 

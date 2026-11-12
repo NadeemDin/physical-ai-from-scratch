@@ -56,6 +56,7 @@ CREATE TABLE rejected_messages (
     received_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     topic         TEXT NOT NULL,
     raw           TEXT NOT NULL,           -- decoded with bad bytes escaped, so nothing is lost
+    raw_bytes     BYTEA NOT NULL,          -- the exact bytes received, unchanged
     error_type    TEXT NOT NULL,           -- exception name, e.g. JSONDecodeError
     error_message TEXT
 );
