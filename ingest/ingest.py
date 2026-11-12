@@ -13,6 +13,7 @@ How it runs:
 
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -43,17 +44,31 @@ print("mqtt host:", mqtt_host)
 # Never print the password itself, only whether it is set.
 print("password set:", bool(db_password))
 
-# One long-lived connection, so on_message can use it.
-# autocommit saves each INSERT immediately. Without it, nothing is saved until conn.commit().
-conn = psycopg.connect(
+
+def connect_db():
+    """Open a database connection. Used at startup and to reconnect after an outage."""
+    # autocommit saves each INSERT immediately, so one failed insert never blocks the next.
+    # connect_timeout stops a reconnect attempt from waiting long while the database is down.
+    return psycopg.connect(
     host=db_host,
     port=db_port,
     dbname=db_name,
     user=db_user,
     password=db_password,
     autocommit=True,
+    connect_timeout =3,
 )
+
+
+conn = connect_db()
 print("database connected")
+
+
+# Outage state, shared between messages. db_down_since is None while the database is up.
+RECONNECT_INTERVAL_S = 5
+db_down_since = None
+lost_messages = 0
+next_reconnect_at = 0.0
 
 
 # Payload key -> readings column. Explicit so firmware and schema can rename independently.
@@ -127,8 +142,8 @@ def reject(msg, error_type, error_message):
     print(f"rejected: {error_type} on {msg.topic}: {error_message}")
 
 
-def on_message(client, userdata, msg):
-    """Store one reading. paho calls this for each message on rig/+/features."""
+def handle_message(msg):
+    """Check one message and store it in readings, or reject it."""
     mqtt_id = msg.topic.split("/")[1]  # "rig/fan1/features" -> ["rig", "fan1", "features"][1] -> "fan1"
     try:
         data = json.loads(msg.payload)
@@ -159,6 +174,30 @@ def on_message(client, userdata, msg):
         reject(msg, type(e).__name__, str(e))
         return
     print("stored:", mqtt_id, " ".join(f"{k}={data.get(k)}" for k in COLUMNS))
+    
+def on_message(client, userdata, msg):
+    """Called by paho for each message. A database outage drops the message instead of crashing."""    
+    global conn, db_down_since, lost_messages, next_reconnect_at
+    if db_down_since is not None:
+        if time.monotonic() < next_reconnect_at:
+            lost_messages += 1
+            return
+        try:
+            conn = connect_db()
+        except psycopg.OperationalError:
+            lost_messages += 1
+            next_reconnect_at = time.monotonic() + RECONNECT_INTERVAL_S
+            return
+        print(f"database back after {time.monotonic() - db_down_since:.0f} s, {lost_messages} messages lost")
+        db_down_since = None
+        lost_messages = 0
+    try:
+        handle_message(msg)
+    except psycopg.OperationalError as e:
+        print(f"database connection lost: {type(e).__name__}: {e}")
+        db_down_since = time.monotonic()
+        lost_messages = 1
+        next_reconnect_at = db_down_since + RECONNECT_INTERVAL_S
 
 
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="ingest")
