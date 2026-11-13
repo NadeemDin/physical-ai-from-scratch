@@ -123,6 +123,12 @@ def on_connect(client, userdata, flags, reason_code, properties):  # paho passes
 def on_disconnect(client, userdata, flags, reason_code, properties):
     """Log a lost broker connection. paho keeps trying to reconnect by itself."""
     log.warning("MQTT disconnected: %s", reason_code)
+    
+
+def on_connect_fail(client, userdata):
+    """Log a failed connection attempt, paho retries by itself, with a growing delay"""
+    log. warning("MQTT connection failed, retrying")
+        
 
 # mqtt_id -> equipment_id, so the database is queried once per fan.
 equipment_ids = {}
@@ -216,6 +222,8 @@ client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="ingest")
 client.on_connect = on_connect
 client.on_message = on_message
 client.on_disconnect = on_disconnect
-client.connect(mqtt_host, mqtt_port)
-# Waits for messages and never returns. paho calls on_connect and on_message from inside it. Stop with Ctrl+C.
-client.loop_forever()
+client.on_connect_fail = on_connect_fail
+client.reconnect_delay_set(min_delay=1, max_delay=30)
+# connect_async + retry_first_connection: a broker that is down at startup is retried, not fatal.
+client.connect_async(mqtt_host, mqtt_port)
+client.loop_forever(retry_first_connection=True)
