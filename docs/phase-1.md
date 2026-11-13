@@ -2,7 +2,7 @@
 
 How readings get from the fan rig into a database, and why it is built this way.
 
-This document is written during the phase. Each section is completed when its part of the system is finished and stable, and updated if a later decision changes it. Decisions are recorded in more detail in [`decisions.md`](../decisions.md). Problems and their fixes are in [`build-log.md`](../build-log.md).
+This document is written during the phase. Each section is completed when its part of the system is finished and stable, and updated if a later decision changes it. Decisions are recorded in more detail in [`decisions.md`](decisions.md). Problems and their fixes are in [`build-log.md`](build-log.md).
 
 | Section | Status |
 |---|---|
