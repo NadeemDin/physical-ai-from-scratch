@@ -15,6 +15,7 @@ reconnects every few seconds. It never waits, so stored timestamps stay correct.
 """
 
 import json
+import logging
 import os
 import time
 from datetime import datetime, timezone
@@ -30,6 +31,11 @@ ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 if not ENV_FILE.exists():
     raise SystemExit(f"Missing {ENV_FILE}. Copy .env.example to .env and fill it in.")
 load_dotenv(ENV_FILE)
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL","INFO"),
+    format="%(asctime)s %(levelname)-7s %(message)s",
+)
+log = logging.getLogger("ingest")
 
 db_name = os.environ["POSTGRES_DB"]
 db_user = os.environ["POSTGRES_USER"]
@@ -41,11 +47,9 @@ db_port = int(os.getenv("POSTGRES_PORT", "5432"))
 mqtt_host = os.getenv("MQTT_HOST", "localhost")
 mqtt_port = int(os.getenv("MQTT_PORT", "1883"))  # int(): environment values are always text
 
-print("database:", db_name)
-print("user:", db_user)
-print("mqtt host:", mqtt_host)
-# Never print the password itself, only whether it is set.
-print("password set:", bool(db_password))
+log.info("database: %s, user: %s, mqtt host: %s", db_name, db_user, mqtt_host)
+# Never log the password itself, only whether it is set.
+log.info("password set: %s", bool(db_password))
 
 
 def connect_db():
@@ -64,7 +68,7 @@ def connect_db():
 
 
 conn = connect_db()
-print("database connected")
+log.info("database connected")
 
 
 # Outage state, shared between messages. db_down_since is None while the database is up.
@@ -111,7 +115,7 @@ INSERT_REJECT_SQL = build_insert("rejected_messages", REJECT_COLS)
 
 def on_connect(client, userdata, flags, reason_code, properties):  # paho passes all five arguments, even unused ones
     """Subscribe to every fan's readings. paho calls this each time the broker accepts the connection."""
-    print("MQTT connected:", reason_code)
+    log.info("MQTT connected: %s", reason_code)
     # Subscribing here means the subscription is renewed after every reconnect.
     client.subscribe("rig/+/features")  # + = any fan
 
@@ -142,7 +146,7 @@ def reject(msg, error_type, error_message):
     """Store a message that could not be injested, so transmission faults stay countable."""
     raw = msg.payload.decode("utf-8", errors="backslashreplace")
     conn.execute(INSERT_REJECT_SQL, (msg.topic, raw, msg.payload, error_type, error_message))
-    print(f"rejected: {error_type} on {msg.topic}: {error_message}")
+    log.warning("rejected: %s on %s: %s" ,error_type, msg.topic, error_message)
 
 
 def handle_message(msg):
@@ -165,7 +169,7 @@ def handle_message(msg):
     # A missing key would become a silent NULL; warn so a firmware change is noticed.
     missing = [k for k in COLUMNS if k not in data]
     if missing:
-        print(f"warning: payload missing {missing}")
+        log.warning("payload missing %s", missing)
 
     # Ingest time, not ESP32 time: the ESP32 has no real clock, only uptime_ms.
     ts = datetime.now(timezone.utc)
@@ -176,7 +180,7 @@ def handle_message(msg):
     except psycopg.DataError as e:
         reject(msg, type(e).__name__, str(e))
         return
-    print("stored:", mqtt_id, " ".join(f"{k}={data.get(k)}" for k in COLUMNS))
+    log.debug("stored %s: %s", mqtt_id, data)
     
 def on_message(client, userdata, msg):
     """Called by paho for each message. A database outage drops the message instead of crashing."""    
@@ -191,13 +195,13 @@ def on_message(client, userdata, msg):
             lost_messages += 1
             next_reconnect_at = time.monotonic() + RECONNECT_INTERVAL_S
             return
-        print(f"database back after {time.monotonic() - db_down_since:.0f} s, {lost_messages} messages lost")
+        log.info("database back after %.0f s, %d messages lost", time.monotonic() - db_down_since, lost_messages)
         db_down_since = None
         lost_messages = 0
     try:
         handle_message(msg)
     except psycopg.OperationalError as e:
-        print(f"database connection lost: {type(e).__name__}: {e}")
+        log.error("database connection lost: %s: %s", type(e).__name__, e)
         db_down_since = time.monotonic()
         lost_messages = 1
         next_reconnect_at = db_down_since + RECONNECT_INTERVAL_S
