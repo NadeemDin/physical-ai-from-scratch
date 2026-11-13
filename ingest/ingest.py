@@ -120,6 +120,10 @@ def on_connect(client, userdata, flags, reason_code, properties):  # paho passes
     client.subscribe("rig/+/features")  # + = any fan
 
 
+def on_disconnect(client, userdata, flags, reason_code, properties):
+    """Log a lost broker connection. paho keeps trying to reconnect by itself."""
+    log.warning("MQTT disconnected: %s", reason_code)
+
 # mqtt_id -> equipment_id, so the database is queried once per fan.
 equipment_ids = {}
 
@@ -211,6 +215,7 @@ client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="ingest")
 # No brackets: paho gets the function itself and calls it later.
 client.on_connect = on_connect
 client.on_message = on_message
+client.on_disconnect = on_disconnect
 client.connect(mqtt_host, mqtt_port)
 # Waits for messages and never returns. paho calls on_connect and on_message from inside it. Stop with Ctrl+C.
 client.loop_forever()
