@@ -3,6 +3,7 @@
 How it runs:
 1. Load the settings from .env and set up logging (LOG_LEVEL, default INFO).
 2. Connect to the database. Keep the connection open.
+   if it is down, start in the outage state (see Outages).
 3. Connect to the MQTT broker. If it is down, keep retrying with a growing delay.
 4. When connected, subscribe to rig/+/features.
 5. For each message:
@@ -11,9 +12,10 @@ How it runs:
    c. If a check or the insert fails, store the message in rejected_messages instead.
 
 Outages:
-- Database down: messages are dropped and counted, and the service reconnects
+- Database down (at startup or later): messages are dropped and counted, and the service reconnects
   every few seconds. It never waits, so stored timestamps stay correct.
 - Broker down: paho reconnects by itself. Readings sent while it is down never arrive.
+
 
 Stop with Ctrl+C.
 """
@@ -71,15 +73,21 @@ def connect_db():
 )
 
 
-conn = connect_db()
-log.info("database connected")
-
-
 # Outage state, shared between messages. db_down_since is None while the database is up.
 RECONNECT_INTERVAL_S = 5
 db_down_since = None
 lost_messages = 0
 next_reconnect_at = 0.0
+
+
+try:
+    conn = connect_db()
+    log.info("database connected")
+except psycopg.OperationalError as e:
+    # Start in the outage stage, so on_message retries the database as in any outage.
+    log.error("database not reachable at startup: %s", e)
+    conn = None
+    db_down_since = time.monotonic()
 
 
 # Payload key -> readings column. Explicit so firmware and schema can rename independently.
@@ -163,7 +171,7 @@ def reject(msg, error_type, error_message):
     log.warning("rejected: %s on %s: %s", error_type, msg.topic, error_message)
 
 
-def handle_message(msg):
+def handle_message(msg, ts):
     """Check one message and store it in readings, or reject it."""
     mqtt_id = msg.topic.split("/")[1]  # topic is rig/<mqtt_id>/features
     try:
@@ -185,8 +193,6 @@ def handle_message(msg):
     if missing:
         log.warning("payload missing %s", missing)
 
-    # Arrival time, not ESP32 time: the ESP32 has no real clock, only uptime_ms.
-    ts = datetime.now(timezone.utc)
     # Order must match READINGS_COLS. The full payload is kept so fields without a column are not lost.
     values = [ts, equipment_id, *(data.get(k) for k in COLUMNS), Jsonb(data)]
     try:
@@ -198,7 +204,9 @@ def handle_message(msg):
     
     
 def on_message(client, userdata, msg):
-    """Called by paho for each message. A database outage drops the message instead of crashing."""    
+    """Called by paho for each message. A database outage drops the message instead of crashing."""
+    # Arrival time, not ESP32 time: the ESP32 has no real clock, only uptime_ms.
+    ts = datetime.now(timezone.utc)    
     global conn, db_down_since, lost_messages, next_reconnect_at
     if db_down_since is not None:
         if time.monotonic() < next_reconnect_at:
@@ -214,7 +222,7 @@ def on_message(client, userdata, msg):
         db_down_since = None
         lost_messages = 0
     try:
-        handle_message(msg)
+        handle_message(msg,ts)
     except psycopg.OperationalError as e:
         log.error("database connection lost: %s: %s", type(e).__name__, e)
         db_down_since = time.monotonic()
@@ -237,4 +245,5 @@ except KeyboardInterrupt:
     log.info("stopping")
 finally:
     client.disconnect()
-    conn.close()
+    if conn is not None:
+        conn.close()

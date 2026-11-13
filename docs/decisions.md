@@ -34,10 +34,11 @@ Each entry records what I chose, why, and what else I considered.
 **Why:** a hypertable splits data into time chunks, so recent-data queries stay fast as the table grows. The key allows one reading per fan per moment and supports queries per fan over time.
 **Alternatives:** a plain Postgres table. Works at first, but gets slower and is harder to compress or expire later.
 
-## Ingest time as the timestamp (9 Nov 2026)
-**Decision:** `time` is set by the ingest service when the message arrives, in UTC.
+## Ingest time as the timestamp (9 Nov 2026, updated 13 Nov 2026)
+**Decision:** `time` is set by the ingest service when the message arrives, in UTC. It is taken on the first line of `on_message` and passed into `handle_message`, before any reconnect attempt or database query.
 **Why:** the ESP32 has no real clock, only `uptime_ms` since boot. UTC never jumps, unlike UK local time, which changes twice a year.
 **Alternatives:** add a real-time clock or NTP time sync to the ESP32. More accurate, but extra work for under a second of difference. `uptime_ms` is still stored, so I can check timing later.
+**Update (13 Nov):** found in the code review. `ts` was taken inside `handle_message`, after the outage reconnect and the first `get_equipment_id()` query, so it could be a little late. Only milliseconds today, but the rule is: record the arrival time at the entry point. Kafka will need the same.
 
 ## Raw payload kept as JSONB (9 Nov 2026)
 **Decision:** every row stores the full MQTT message in a `payload` JSONB column, as well as the typed columns.
@@ -130,8 +131,19 @@ Each entry records what I chose, why, and what else I considered.
 **Decision:** when the database is down, the ingest service drops each message, counts it, and tries to reconnect at most every 5 seconds. It never waits inside `on_message`. When the database is back, it logs how long the outage was and how many messages were lost. The same reconnect logic is used at startup.
 **Why:** `time` is ingest time, so it is only correct if each message is stored when it arrives. Waiting inside `on_message` makes messages queue up, and the backlog would get the wrong timestamps when the database returns. A visible gap in `readings` is honest; a backlog with wrong times looks normal but is wrong.
 **Alternatives:** block and retry until the database is back (wrong timestamps), or buffer messages in memory with their arrival time (more complex, and lost anyway if the service stops). Lost messages cannot go to `rejected_messages`, because it is in the same database.
+
 ## No local spool for outages; Kafka will replay instead (12 Nov 2026)
 **Decision:** I do not build a local "store and forward" spool for messages that arrive while the database is down. Until phase 2, those messages stay dropped and counted. Kafka, in phase 2, keeps every message on disk, so the database writer can catch up after an outage with the original timestamps.
 **Why:** a spool (record the arrival time, append the message to a file, replay it with `ON CONFLICT DO NOTHING` when the database is back) is a small version of what Kafka does. I understand how it would work, and Kafka is the skill I want to learn, so I spend the time there.
 **Note:** the timestamp problem was never the ESP32's missing clock. `time` is the arrival time at the ingest service. It is only wrong if processing is delayed and the time is taken late. Any buffer must record the arrival time when the message arrives.
 **Alternatives:** build the spool now (one session; useful practice, but it duplicates phase 2).
+
+## Validate at the boundary (13 Nov 2026)
+**Decision:** the ingest service checks every message before it touches `readings`, in this order: valid bytes and JSON → a JSON object → known equipment → values the database accepts. A message that fails any check goes to `rejected_messages` through one `reject()` helper. `handle_message` only answers "is this message good?"; database outages are handled one level up, in `on_message`.
+**Why:** the ingest service is where data from outside (the ESP32, later the fleet simulator) enters my system. If bad data gets past this point, every query, dashboard and model downstream has to defend against it. Checking once, at the entry point, keeps everything after it simple. Keeping message checks and outage handling in separate functions means each one has one job, and a bad message can never be confused with a database problem.
+**Alternatives:** let the database reject bad rows and catch whatever fails (types would be checked, but not "is this a known fan" or "is this an object"), or clean the data later in SQL (bad rows would already be mixed in with good ones).
+
+## Start in the outage state if the database is down at startup (13 Nov 2026)
+**Decision:** if the first `connect_db()` fails, the service logs an error, sets `conn = None` and starts in the outage state. It still connects to the broker. `on_message` then drops, counts and reconnects exactly as in any other outage.
+**Why:** found in the code review. Before this, a database that was down at startup crashed the service, with no retry. The broker was already retried at startup, so the two outages behaved differently. Now there is one rule for both: the service never stops because something it depends on is down. Tested: database stopped, service started, database started 19 s later → "database back after 19 s, 18 messages lost", and rows were stored again.
+**Alternatives:** retry the database in a loop before connecting to the broker (simple, but the service looks dead and nothing is counted), or let it crash and rely on Docker to restart it (works later in Compose, but hides the outage and loses the count).

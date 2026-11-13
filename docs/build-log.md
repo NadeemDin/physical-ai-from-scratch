@@ -1,8 +1,8 @@
-# Phase 0: Build log
+# Build log
 
-Problems hit while building the rig: what happened, why and how it was fixed. If something in the [build guide](build.md) doesnt behave as described, look for the symptom here first.
+Problems hit while building the rig (phase 0) and the data pipeline (phase 1): what happened, why and how it was fixed. If something in the [build guide](build.md) doesnt behave as described, look for the symptom here first.
 
-## Quick index
+## Phase 0 quick index
 
 | # | Symptom | Step | Status |
 | --- | --- |---|----|
@@ -211,3 +211,62 @@ Exit with **Ctrl+A, then K, then Y**. This only matters while building; the fini
  
 **Decision:** accepted. The models learn what's normal for **this** rig, rocking included. What matters is that the setup stays the same between recordings. Brackets on the front face too would stiffen it, if needed later.
  
+
+---
+
+## Phase 1 quick index
+
+| # | Symptom | Part | Status |
+| --- | --- | --- | --- |
+| 16 | After a database outage: "the connection is closed", on every message, forever | Ingest service | Fixed |
+| 17 | `ProgrammingError`: the query has 5 placeholders but 4 parameters | Ingest service | Fixed |
+| 18 | Log line prints `%s` literally instead of the values | Ingest service | Fixed |
+| 19 | `AttributeError: 'NoneType' object has no attribute 'execute'` after starting with the database down | Ingest service | Fixed |
+
+---
+
+## 16. "The connection is closed" forever after an outage
+
+**When:** 12 Nov 2026, database outage handling
+
+**What happened:** I stopped the database, then started it again. The log said "database back", but every message after that failed with "the connection is closed". The service never recovered.
+
+**Why:** `on_message` assigned the new connection with `conn = connect_db()`, but `conn` was not on its `global` line. In Python, assigning to a name inside a function makes a new **local** variable, unless the name is declared `global`. So the new connection lived only inside `on_message` and was thrown away when it returned. `handle_message` kept using the old, closed global `conn`. Reading a global needs nothing; assigning to one needs `global`.
+
+**Fix:** `global conn, db_down_since, lost_messages, next_reconnect_at`.
+
+---
+
+## 17. 5 placeholders, 4 values
+
+**When:** 12 Nov 2026, adding `raw_bytes` to `rejected_messages`
+
+**What happened:** the first reject after the change failed with a `ProgrammingError` about the number of parameters.
+
+**Why:** I added `raw_bytes` to `REJECT_COLS`, so `build_insert()` made 5 `%s` placeholders. The `conn.execute()` call in `reject()` still passed 4 values. The values must match the column list one for one, in the same order.
+
+**Fix:** pass `msg.payload` (the exact bytes) in the third position, to match `REJECT_COLS`. `ProgrammingError` is not caught on purpose: it means a bug in my code, so it should stop the service loudly.
+
+---
+
+## 18. Log line prints `%s` literally
+
+**When:** 13 Nov 2026, moving from `print` to `logging`
+
+**What happened:** a log line showed the format text with `%s` in it, and the values were missing.
+
+**Why:** I put the arguments inside the quotes, so they became part of the text. `logging` fills each `%s` from the arguments **after** the format string.
+
+**Fix:** close the string, then pass the values: `log.info("database: %s, user: %s", db_name, db_user)`.
+
+---
+
+## 19. `NoneType` has no `execute` after starting with the database down
+
+**When:** 13 Nov 2026, code review fix: start in the outage state
+
+**What happened:** I started the service with the database stopped. The first message crashed it with `AttributeError: 'NoneType' object has no attribute 'execute'`.
+
+**Why:** the startup `try` set `conn = None` and `db_down_since`, but the outage-state block (`db_down_since = None` and the others) came **after** it in the file. Top-level code runs top to bottom, so the later line reset `db_down_since` to `None`. `on_message` then thought the database was up and used `conn`, which was `None`.
+
+**Fix:** move the outage-state block above the startup `try`. Tested: "database back after 19 s, 18 messages lost", then rows stored again.

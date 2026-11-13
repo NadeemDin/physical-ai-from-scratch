@@ -9,7 +9,7 @@ This document is written during the phase. Each section is completed when its pa
 | 1. Overview and architecture | written |
 | 2. The rig's messages | written |
 | 3. Database schema | written |
-| 4. Ingest service | outline (in progress) |
+| 4. Ingest service | written |
 | 5. Results | outline |
 | 6. Limitations and next steps | outline |
 
@@ -190,19 +190,116 @@ The schema SQL file runs automatically the first time the database starts with a
 
 ---
 
-## 4. Ingest service (outline: in progress)
+## 4. Ingest service
 
-To write when the reconnect and logging are finished.
+`ingest/ingest.py` is one Python file. It takes each message from the broker, checks it, and stores it as one row in `readings`, or as one row in `rejected_messages` if it is bad. It must keep running when the broker or the database is down.
 
-- How it runs: load settings from `.env`, connect to the database, connect to the broker, subscribe in `on_connect` (so the subscription is renewed after every reconnect), then wait for messages.
-- From message to row: topic → `mqtt_id` → `equipment_id` (cached; unknown ids are not cached) → values in column order → one INSERT.
-- The mapping dict (payload key → column) and `build_insert()`: why the INSERT is built from column lists, and why placeholders keep values out of the SQL text.
-- **Validate at the boundary:** valid bytes and JSON → a JSON object → known equipment → values the database accepts. Each failure goes to `rejected_messages` through one `reject()` helper.
-- Which errors are caught and which stay loud (`DataError` = bad message; `ProgrammingError` = my bug; `OperationalError` = database problem).
-- `scripts/send_bad_messages.sh`: one example of each reject.
-- Database outages (built and tested 12 Nov 2026): `on_message` is a thin wrapper around `handle_message`; on `OperationalError` it drops and counts messages, reconnects with `connect_db()` (`connect_timeout=3`) at most every 5 s, and logs the outage length and lost count. Times use `time.monotonic()`. Why blocking would give wrong timestamps. The `global conn` bug found in testing (a local `conn` hid the new connection).
-- Logging: levels and timestamps.
-- How to run it and what normal output looks like.
+### How it runs
+
+```mermaid
+flowchart TD
+    A[Load .env, set up logging] --> B{connect_db}
+    B -- ok --> C[conn open]
+    B -- fails --> D[Outage state<br/>conn = None]
+    C --> E[MQTT loop<br/>broker retried 1 to 30 s]
+    D --> E
+    E --> F[on_connect<br/>subscribe rig/+/features]
+    F --> G[on_message<br/>once per reading]
+    E -. broker lost .-> H[on_disconnect / on_connect_fail<br/>log, paho retries]
+    G --> Z[Ctrl+C<br/>finally: disconnect, close]
+```
+
+1. **Settings.** The repo-root `.env` is loaded by its full path, so a `.env` elsewhere is never used by mistake. If it is missing, the service stops with a clear message. Required settings (database name, user, password) use `os.environ[...]`, so a missing one fails at once. Optional ones (hosts, ports) use `os.getenv(..., default)` and point at the local Docker containers. The password is never logged, only whether it is set.
+2. **Database.** `connect_db()` opens one connection and keeps it open. `autocommit=True` saves each INSERT at once, so one failed insert never blocks the next. `connect_timeout=3` stops a reconnect attempt from waiting long while the database is down. If the database is down at startup, the service starts in the outage state (below) instead of crashing.
+3. **Broker.** `connect_async()` and `loop_forever(retry_first_connection=True)` mean a broker that is down at startup is retried, not fatal. `reconnect_delay_set(min_delay=1, max_delay=30)` makes paho wait longer after each failed attempt, up to 30 s.
+4. **Subscribe in `on_connect`.** paho calls `on_connect` each time the broker accepts the connection, so the subscription to `rig/+/features` is renewed after every reconnect. `+` matches any fan id.
+5. **Stop.** Ctrl+C ends the loop. The `finally` block disconnects from the broker and closes the database connection, if there is one.
+
+### From message to row
+
+```mermaid
+flowchart TD
+    M[on_message] --> Q{Database down?}
+    Q -- yes --> O[Outage branch<br/>count lost, retry every 5 s]
+    O -- back --> P
+    O -- still down --> X[Message dropped]
+    Q -- no --> P[Parse JSON<br/>must be an object]
+    P --> K[Known equipment?]
+    K --> I[INSERT into readings<br/>ts = arrival time]
+    I --> S[Stored]
+    P -. bad .-> R[reject: rejected_messages]
+    K -. unknown .-> R
+    I -. DataError .-> R
+    I -- OperationalError --> OS[Enter outage state]
+```
+
+- **Topic → equipment.** The topic is `rig/<mqtt_id>/features`. `get_equipment_id()` looks up the `equipment_id` once and caches it in `equipment_ids`. Unknown ids are not cached, so a fan added to the table later is found on its next message. The risk: if a fan's id changes in the table, the cache is stale until the service restarts.
+- **The mapping dict.** `COLUMNS` maps each payload key to its `readings` column. Today every name is the same, but the firmware and the schema can now rename fields separately. `READING_COLS` is built from it, and `build_insert()` builds the INSERT from the column list, so a new reading field is a one-line change.
+- **Placeholders.** Values are always passed as `%s` parameters, never put into the SQL text, so a message can never change the SQL (SQL injection). Table and column names cannot be parameters, so they come only from this file. The value list must match the column list one for one, in the same order (build log 17).
+- **The timestamp** is `datetime.now(timezone.utc)`, taken on the first line of `on_message` and passed into `handle_message`. So it is the arrival time, before any reconnect or database query. The ESP32 has no real clock.
+- **Missing keys** are stored as NULL and logged as a WARNING, so a firmware change is noticed.
+- **The payload** is stored in full as `JSONB`, so fields without a column are not lost.
+
+### Validate at the boundary
+
+The ingest service is where outside data enters the system, so it checks every message once, here:
+
+| Check | Fails as | Example |
+|---|---|---|
+| Valid text and JSON | `UnicodeDecodeError`, `JSONDecodeError` | the byte `0xff`; `{"duty": ` |
+| A JSON object | `NotAnObject` | `42`, `[1, 2]` |
+| Known equipment | `UnknownEquipment` | topic `rig/fan99/features` |
+| Values the database accepts | `DataError` (e.g. `NumericValueOutOfRange`) | `{"duty": 99999}` |
+
+Each failure goes through one `reject()` helper. It stores the topic, the text (bad bytes written as escapes with `backslashreplace`), the exact bytes, the error type and the error message, and logs a WARNING. `scripts/send_bad_messages.sh` sends one example of each.
+
+**Which errors are caught:**
+
+| Error | Meaning | What happens |
+|---|---|---|
+| `DataError` | A bad value in the message | Rejected |
+| `OperationalError` | A database problem (down, restarted) | Outage state |
+| `ProgrammingError` | A bug in my code | Not caught: the service stops loudly |
+
+`handle_message` only answers "is this message good?". `on_message` wraps it and handles database outages. One function per job.
+
+### Outages
+
+**Database down.** On `OperationalError`, `on_message` records the time (`time.monotonic()`, which never jumps, unlike the wall clock) and enters the outage state. Each message after that is dropped and counted. At most every 5 s, one message triggers a reconnect attempt. When it works, the service logs `database back after 19 s, 18 messages lost`, and that message is stored normally. The service never waits inside `on_message`. If it waited, messages would queue up and get the wrong arrival time when the database came back. A gap in `readings` is honest; a backlog with wrong times is not. The same rule applies at startup. Lost messages are not recovered until Kafka, in phase 2.
+
+**Broker down.** paho logs the disconnect (`on_disconnect`: WARNING if it was a failure, INFO for a normal disconnect) and reconnects by itself, with a growing delay. Readings sent while the broker is down never arrive. The ESP32 only publishes while it is connected.
+
+### Logging
+
+The `logging` module replaced `print`. Each line has a time and a level. The level is set by `LOG_LEVEL` in `.env` (default `INFO`).
+
+| Level | Used for |
+|---|---|
+| DEBUG | Every stored reading |
+| INFO | Startup, connected, database back, stopping |
+| WARNING | Rejects, missing keys, broker lost |
+| ERROR | Database down |
+
+Values are passed as arguments (`log.info("database: %s", db_name)`), not formatted into the text first, so `logging` only builds the text if the line is shown.
+
+### How to run it
+
+With the Docker stack running and `.env` filled in:
+
+```
+python3 ingest/ingest.py
+```
+
+Normal output:
+
+```
+INFO    database: fanrig, user: rig, mqtt host: localhost
+INFO    password set: True
+INFO    database connected
+INFO    MQTT connected: Success
+```
+
+Add `LOG_LEVEL=DEBUG` to `.env` to see every stored reading. Stop with Ctrl+C.
 
 ## 5. Results (outline)
 
@@ -243,4 +340,7 @@ To write at the end of the phase.
 | 9 Nov 2026 | Ingest service storing rows; then all 14 readings plus the raw payload |
 | 11 Nov 2026 | Ingest service survives bad messages |
 | 12 Nov 2026 | Dead-letter table with exact raw bytes; `payload NOT NULL` |
+| 12 Nov 2026 | Ingest service survives database outages: drop, count, reconnect |
+| 13 Nov 2026 | Logging; broker retried at startup; clean stop on Ctrl+C |
+| 13 Nov 2026 | Code review of `ingest.py`; database down at startup handled |
 | 12 Nov 2026 | Database outages survived: drop, count and reconnect, verified with a gap query |
