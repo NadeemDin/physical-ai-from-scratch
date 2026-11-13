@@ -1,17 +1,21 @@
 """Ingest service. Stores rig readings from MQTT in TimescaleDB.
 
 How it runs:
-1. Load the settings from .env.
+1. Load the settings from .env and set up logging (LOG_LEVEL, default INFO).
 2. Connect to the database. Keep the connection open.
-3. Connect to the MQTT broker.
+3. Connect to the MQTT broker. If it is down, keep retrying with a growing delay.
 4. When connected, subscribe to rig/+/features.
 5. For each message:
    a. Check it: valid JSON, a JSON object, from known equipment.
    b. Insert one row into readings: every mapped field plus the raw payload.
    c. If a check or the insert fails, store the message in rejected_messages instead.
 
-If the database goes down, messages are dropped and counted, and the service
-reconnects every few seconds. It never waits, so stored timestamps stay correct.
+Outages:
+- Database down: messages are dropped and counted, and the service reconnects
+  every few seconds. It never waits, so stored timestamps stay correct.
+- Broker down: paho reconnects by itself. Readings sent while it is down never arrive.
+
+Stop with Ctrl+C.
 """
 
 import json
@@ -32,7 +36,7 @@ if not ENV_FILE.exists():
     raise SystemExit(f"Missing {ENV_FILE}. Copy .env.example to .env and fill it in.")
 load_dotenv(ENV_FILE)
 logging.basicConfig(
-    level=os.getenv("LOG_LEVEL","INFO"),
+    level=os.getenv("LOG_LEVEL","INFO"), 
     format="%(asctime)s %(levelname)-7s %(message)s",
 )
 log = logging.getLogger("ingest")
@@ -57,13 +61,13 @@ def connect_db():
     # autocommit saves each INSERT immediately, so one failed insert never blocks the next.
     # connect_timeout stops a reconnect attempt from waiting long while the database is down.
     return psycopg.connect(
-    host=db_host,
-    port=db_port,
-    dbname=db_name,
-    user=db_user,
-    password=db_password,
-    autocommit=True,
-    connect_timeout =3,
+        host=db_host,
+        port=db_port,
+        dbname=db_name,
+        user=db_user,
+        password=db_password,
+        autocommit=True,
+        connect_timeout = 3,
 )
 
 
@@ -96,6 +100,7 @@ COLUMNS = {
     "power_samples": "power_samples",
 }
 
+
 def build_insert(table, columns):
     """Build a parameterised INSERT with one %s per column. Names come from this file only."""
     placeholders = ", ".join(["%s"] * len(columns))
@@ -104,11 +109,7 @@ def build_insert(table, columns):
 
 # Built from COLUMNS, so a new reading field is a one-line change.
 READING_COLS = ["time", "equipment_id", *COLUMNS.values(), "payload"]
-
-
 REJECT_COLS = ["topic", "raw", "raw_bytes", "error_type", "error_message"]
-
-
 INSERT_READING_SQL = build_insert("readings", READING_COLS)
 INSERT_REJECT_SQL = build_insert("rejected_messages", REJECT_COLS)
 
@@ -117,17 +118,20 @@ def on_connect(client, userdata, flags, reason_code, properties):  # paho passes
     """Subscribe to every fan's readings. paho calls this each time the broker accepts the connection."""
     log.info("MQTT connected: %s", reason_code)
     # Subscribing here means the subscription is renewed after every reconnect.
-    client.subscribe("rig/+/features")  # + = any fan
+    client.subscribe("rig/+/features")  # + matches any fan id
 
 
 def on_disconnect(client, userdata, flags, reason_code, properties):
     """Log a lost broker connection. paho keeps trying to reconnect by itself."""
-    log.warning("MQTT disconnected: %s", reason_code)
+    if reason_code.is_failure:
+        log.warning("MQTT disconnected: %s", reason_code)
+    else:
+        log.info("MQTT disconnected: %s", reason_code)
     
 
 def on_connect_fail(client, userdata):
     """Log a failed connection attempt, paho retries by itself, with a growing delay"""
-    log. warning("MQTT connection failed, retrying")
+    log.warning("MQTT connection failed, retrying")
         
 
 # mqtt_id -> equipment_id, so the database is queried once per fan.
@@ -153,21 +157,21 @@ def get_equipment_id(mqtt_id):
 
 
 def reject(msg, error_type, error_message):
-    """Store a message that could not be injested, so transmission faults stay countable."""
+    """Store a message that could not be ingested, so transmission faults stay countable."""
     raw = msg.payload.decode("utf-8", errors="backslashreplace")
     conn.execute(INSERT_REJECT_SQL, (msg.topic, raw, msg.payload, error_type, error_message))
-    log.warning("rejected: %s on %s: %s" ,error_type, msg.topic, error_message)
+    log.warning("rejected: %s on %s: %s", error_type, msg.topic, error_message)
 
 
 def handle_message(msg):
     """Check one message and store it in readings, or reject it."""
-    mqtt_id = msg.topic.split("/")[1]  # "rig/fan1/features" -> ["rig", "fan1", "features"][1] -> "fan1"
+    mqtt_id = msg.topic.split("/")[1]  # topic is rig/<mqtt_id>/features
     try:
         data = json.loads(msg.payload)
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
         reject(msg, type(e).__name__, str(e))
         return
-    if not isinstance(data,dict):
+    if not isinstance(data, dict):
         reject(msg, "NotAnObject", f"expected a JSON object, got {type(data).__name__}")
         return
 
@@ -181,9 +185,9 @@ def handle_message(msg):
     if missing:
         log.warning("payload missing %s", missing)
 
-    # Ingest time, not ESP32 time: the ESP32 has no real clock, only uptime_ms.
+    # Arrival time, not ESP32 time: the ESP32 has no real clock, only uptime_ms.
     ts = datetime.now(timezone.utc)
-    # Order must match cols. The full payload is kept so fields without a column are not lost.
+    # Order must match READINGS_COLS. The full payload is kept so fields without a column are not lost.
     values = [ts, equipment_id, *(data.get(k) for k in COLUMNS), Jsonb(data)]
     try:
         conn.execute(INSERT_READING_SQL, values)
@@ -191,6 +195,7 @@ def handle_message(msg):
         reject(msg, type(e).__name__, str(e))
         return
     log.debug("stored %s: %s", mqtt_id, data)
+    
     
 def on_message(client, userdata, msg):
     """Called by paho for each message. A database outage drops the message instead of crashing."""    
@@ -218,7 +223,7 @@ def on_message(client, userdata, msg):
 
 
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="ingest")
-# No brackets: paho gets the function itself and calls it later.
+
 client.on_connect = on_connect
 client.on_message = on_message
 client.on_disconnect = on_disconnect
