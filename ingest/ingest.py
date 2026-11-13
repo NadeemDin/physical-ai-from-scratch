@@ -226,4 +226,10 @@ client.on_connect_fail = on_connect_fail
 client.reconnect_delay_set(min_delay=1, max_delay=30)
 # connect_async + retry_first_connection: a broker that is down at startup is retried, not fatal.
 client.connect_async(mqtt_host, mqtt_port)
-client.loop_forever(retry_first_connection=True)
+try:
+    client.loop_forever(retry_first_connection=True)
+except KeyboardInterrupt:
+    log.info("stopping")
+finally:
+    client.disconnect()
+    conn.close()
