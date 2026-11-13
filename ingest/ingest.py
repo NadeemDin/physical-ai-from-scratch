@@ -205,9 +205,9 @@ def handle_message(msg, ts):
     
 def on_message(client, userdata, msg):
     """Called by paho for each message. A database outage drops the message instead of crashing."""
-    # Arrival time, not ESP32 time: the ESP32 has no real clock, only uptime_ms.
-    ts = datetime.now(timezone.utc)    
     global conn, db_down_since, lost_messages, next_reconnect_at
+    # Arrival time, taken first before reconnect or query.
+    ts = datetime.now(timezone.utc)    
     if db_down_since is not None:
         if time.monotonic() < next_reconnect_at:
             lost_messages += 1
@@ -222,7 +222,7 @@ def on_message(client, userdata, msg):
         db_down_since = None
         lost_messages = 0
     try:
-        handle_message(msg,ts)
+        handle_message(msg, ts)
     except psycopg.OperationalError as e:
         log.error("database connection lost: %s: %s", type(e).__name__, e)
         db_down_since = time.monotonic()
