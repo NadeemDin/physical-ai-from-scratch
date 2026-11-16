@@ -94,9 +94,8 @@ INSERT_READING_SQL = build_insert("readings", READING_COLS)
 INSERT_REJECT_SQL = build_insert("rejected_messages", REJECT_COLS)
 
 
-def on_connect(
-    client, userdata, flags, reason_code, properties
-):  # paho passes all five arguments, even unused ones
+# paho passes all five arguments, even unused ones
+def on_connect(client, userdata, flags, reason_code, properties):
     """Subscribe to every fan's readings. paho calls this each time the broker accepts the connection."""
     log.info("MQTT connected: %s", reason_code)
     # Subscribing here means the subscription is renewed after every reconnect.
@@ -112,7 +111,7 @@ def on_disconnect(client, userdata, flags, reason_code, properties):
 
 
 def on_connect_fail(client, userdata):
-    """Log a failed connection attempt. paho retries by itself, with a growing delay"""
+    """Log a failed connection attempt. paho retries by itself, with a growing delay."""
     log.warning("MQTT connection failed, retrying")
 
 
@@ -211,7 +210,7 @@ def on_message(client, userdata, msg):
 
 
 def main():
-    """Load settings, connect to the database and broker, and run until Ctrl+C"""
+    """Load settings, connect to the database and broker, and run until Ctrl+C."""
     global conn, db_down_since
 
     # Load the repo-root .env explicitly, so a .env elsewhere is never picked up by mistake.
@@ -229,9 +228,8 @@ def main():
 
     # Defaults to the local Docker containers. Set MQTT_HOST in .env for a remote one.
     mqtt_host = os.getenv("MQTT_HOST", "localhost")
-    mqtt_port = int(
-        os.getenv("MQTT_PORT", "1883")
-    )  # int(): environment values are always text
+    # int(): environment values are always text
+    mqtt_port = int(os.getenv("MQTT_PORT", "1883"))
 
     log.info(
         "database: %s, user: %s, mqtt host: %s",
