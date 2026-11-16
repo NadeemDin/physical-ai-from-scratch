@@ -1,0 +1,17 @@
+[tool.pytest.ini_options]
+testpaths = ["ingest/tests"]
+# Lets tests run "import ingest" without installing it as a package.
+pythonpath = ["ingest"]
+
+[tool.ruff]
+# Must match the Python version in the Docker images.
+target-version = "py314"
+
+[tool.ruff.lint]
+# Chosen on purpose so results do not change with ruff's defaults.
+select = [
+    "E4", "E7", "E9", "F",  # ruff's classic defaults: syntax errors, undefined names, unused imports
+    "I",                    # import sorting, so every file orders imports the same way
+    "UP",                   # modern syntax for target-version (e.g. datetime.UTC)
+    "B",                    # bugbear: common bug patterns (e.g. mutable default arguments)
+]
