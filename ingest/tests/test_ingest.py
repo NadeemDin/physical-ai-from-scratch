@@ -13,22 +13,20 @@ class FakeMsg:
 
 class FakeConn:
     """Records every execute() call instead of running SQL."""
-    
-    def __init__(self,equipment=1):
-        self.equipment_id = equipment
+
+    def __init__(self, equipment_id=1):
+        self.equipment_id = equipment_id
         self.calls = []
-        
+
     def execute(self, sql, params=None):
         self.calls.append((sql, params))
         return self
-    
+
     def fetchone(self):
         if self.equipment_id is None:
             return None
         return (self.equipment_id,)
-    
-    
-    
+
 
 @pytest.mark.parametrize(
     ("columns", "expected"),
@@ -42,4 +40,3 @@ def test_build_insert_has_one_placeholder_per_column(columns, expected):
     sql = ingest.build_insert("t", columns)
 
     assert sql == expected
-
