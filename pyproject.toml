@@ -15,3 +15,6 @@ select = [
     "UP",                   # modern syntax for target-version (e.g. datetime.UTC)
     "B",                    # bugbear: common bug patterns (e.g. mutable default arguments)
 ]
+
+[tool.pyright]
+extraPaths = ["ingest"]
