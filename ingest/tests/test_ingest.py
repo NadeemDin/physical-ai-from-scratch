@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import pytest
 
@@ -28,6 +29,14 @@ class FakeConn:
         return (self.equipment_id,)
 
 
+@pytest.fixture
+def fake_conn(monkeypatch):
+    fake = FakeConn()
+    monkeypatch.setattr(ingest, "conn", fake)
+    monkeypatch.setattr(ingest, "equipment_ids", {})
+    return fake
+
+
 @pytest.mark.parametrize(
     ("columns", "expected"),
     [
@@ -40,3 +49,17 @@ def test_build_insert_has_one_placeholder_per_column(columns, expected):
     sql = ingest.build_insert("t", columns)
 
     assert sql == expected
+
+
+def test_good_message_is_stored(fake_conn):
+    msg = FakeMsg("rig/fan1/features", b'{"duty": 40, "rpm": 1440}')
+    ts = datetime(2026, 11, 18, tzinfo=UTC)
+
+    ingest.handle_message(msg, ts)
+
+    assert len(fake_conn.calls) == 2
+    sql, values = fake_conn.calls[1]
+    assert sql == ingest.INSERT_READING_SQL
+    assert len(values) == 17
+    assert values[0] == ts
+    assert values[1] == 1
