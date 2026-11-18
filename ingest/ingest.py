@@ -34,6 +34,7 @@ import paho.mqtt.client as mqtt
 import psycopg
 from dotenv import load_dotenv
 from psycopg.types.json import Jsonb
+from paho.mqtt.enums import CallbackAPIVersion
 
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 log = logging.getLogger("ingest")
@@ -249,7 +250,7 @@ def main():
         conn = None
         db_down_since = time.monotonic()
 
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="ingest")
+    client = mqtt.Client(CallbackAPIVersion.VERSION2, client_id="ingest")
     client.on_connect = on_connect
     client.on_message = on_message
     client.on_disconnect = on_disconnect
