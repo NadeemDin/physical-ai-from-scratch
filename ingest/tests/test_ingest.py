@@ -99,3 +99,17 @@ def test_equipment_is_unknown(monkeypatch):
     sql, values = fake.calls[1]
     assert sql == ingest.INSERT_REJECT_SQL
     assert values[3] == "UnknownEquipment"
+
+
+def test_select_skipped_when_equipment_in_cache(fake_conn):
+
+    msg = FakeMsg("rig/fan1/features", b'{"duty": 40, "rpm": 1440}')
+    ts = datetime(2026, 11, 19, tzinfo=UTC)
+
+    ingest.handle_message(msg, ts)
+    ingest.handle_message(msg, ts)
+
+    assert len(fake_conn.calls) == 3
+
+    for sql, _values in fake_conn.calls[1:3]:
+        assert sql == ingest.INSERT_READING_SQL
