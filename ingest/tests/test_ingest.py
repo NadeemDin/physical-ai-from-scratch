@@ -63,3 +63,23 @@ def test_good_message_is_stored(fake_conn):
     assert len(values) == 17
     assert values[0] == ts
     assert values[1] == 1
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_error"),
+    [
+        (b"not json", "JSONDecodeError"),
+        (b"\xff", "UnicodeDecodeError"),
+        (b"42", "NotAnObject"),
+    ],
+)
+def test_bad_message_is_rejected(fake_conn, payload, expected_error):
+    msg = FakeMsg("rig/fan1/features", payload)
+    ts = datetime(2026, 11, 19, tzinfo=UTC)
+
+    ingest.handle_message(msg, ts)
+
+    assert len(fake_conn.calls) == 1
+    sql, values = fake_conn.calls[0]
+    assert sql == ingest.INSERT_REJECT_SQL
+    assert values[3] == expected_error
