@@ -33,8 +33,8 @@ from pathlib import Path
 import paho.mqtt.client as mqtt
 import psycopg
 from dotenv import load_dotenv
-from psycopg.types.json import Jsonb
 from paho.mqtt.enums import CallbackAPIVersion
+from psycopg.types.json import Jsonb
 
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 log = logging.getLogger("ingest")
