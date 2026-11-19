@@ -83,3 +83,19 @@ def test_bad_message_is_rejected(fake_conn, payload, expected_error):
     sql, values = fake_conn.calls[0]
     assert sql == ingest.INSERT_REJECT_SQL
     assert values[3] == expected_error
+
+
+def test_equipment_is_unknown(monkeypatch):
+    fake = FakeConn(equipment_id=None)
+    monkeypatch.setattr(ingest, "conn", fake)
+    monkeypatch.setattr(ingest, "equipment_ids", {})
+
+    msg = FakeMsg("rig/fan1/features", b'{"duty": 40, "rpm": 1440}')
+    ts = datetime(2026, 11, 19, tzinfo=UTC)
+
+    ingest.handle_message(msg, ts)
+
+    assert len(fake.calls) == 2
+    sql, values = fake.calls[1]
+    assert sql == ingest.INSERT_REJECT_SQL
+    assert values[3] == "UnknownEquipment"
